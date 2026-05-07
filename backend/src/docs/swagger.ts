@@ -1240,10 +1240,26 @@ const swaggerSpec = {
         },
       },
     },
+    "/api/ksync/run-scenario/manual-review": {
+      post: {
+        tags: ["Scenarios"],
+        summary: "Run Scenario 4: Manual Review",
+        responses: {
+          202: {
+            description: "Scenario executed.",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ScenarioResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
     "/api/ksync/run-scenario/idempotency": {
       post: {
         tags: ["Scenarios"],
-        summary: "Run Scenario 4: Idempotency",
+        summary: "Run Scenario 5: Idempotency",
         responses: {
           202: {
             description: "Scenario executed.",
@@ -1259,7 +1275,7 @@ const swaggerSpec = {
     "/api/ksync/run-scenario/failure-retry": {
       post: {
         tags: ["Scenarios"],
-        summary: "Run Scenario 5: Failure and Retry",
+        summary: "Run Scenario 6: Failure and Retry",
         responses: {
           202: {
             description: "Scenario executed.",

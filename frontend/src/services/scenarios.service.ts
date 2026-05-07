@@ -36,6 +36,10 @@ export function runConflictScenario(): Promise<ScenarioRunResult> {
   return runScenario("CONFLICT", "/api/ksync/run-scenario/conflict");
 }
 
+export function runManualReviewScenario(): Promise<ScenarioRunResult> {
+  return runScenario("MANUAL_REVIEW", "/api/ksync/run-scenario/manual-review");
+}
+
 export function runIdempotencyScenario(): Promise<ScenarioRunResult> {
   return runScenario("IDEMPOTENCY", "/api/ksync/run-scenario/idempotency");
 }

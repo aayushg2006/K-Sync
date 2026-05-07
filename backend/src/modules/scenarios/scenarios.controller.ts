@@ -6,6 +6,7 @@ import {
   runConflictScenario,
   runDepartmentToSwsScenario,
   runIdempotencyScenario,
+  runManualReviewScenario,
   runSwsToDepartmentsScenario,
 } from "./scenarios.service";
 
@@ -28,6 +29,13 @@ export async function runConflictScenarioHandler(
   response: Response,
 ) {
   response.status(202).json(await runConflictScenario());
+}
+
+export async function runManualReviewScenarioHandler(
+  _request: Request,
+  response: Response,
+) {
+  response.status(202).json(await runManualReviewScenario());
 }
 
 export async function runIdempotencyScenarioHandler(

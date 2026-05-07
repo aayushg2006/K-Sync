@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleAlert, GitCompareArrows } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { BadgeList } from "@/components/common/BadgeList";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -12,15 +12,13 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { SystemBadge } from "@/components/common/SystemBadge";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { formatAddress, formatCount, formatDate, formatDateTime } from "@/lib/formatters";
-import { getBusinessComparison } from "@/services/business.service";
+import { getBusinessComparison, getBusinesses } from "@/services/business.service";
 import type {
   BusinessComparison,
   EkarmikaRecord,
   EsurakshateRecord,
   SwsBusinessRecord,
 } from "@/types/business.types";
-
-const selectableUbids = ["UBID-KA-2026-0001", "UBID-KA-2026-0002", "UBID-KA-2026-0003"] as const;
 
 type BusinessPanelProps = {
   emptyMessage: string;
@@ -68,9 +66,30 @@ function BusinessColumn({ emptyMessage, record, subtitle, title }: BusinessPanel
 }
 
 export function BusinessSyncPage() {
-  const [selectedUbid, setSelectedUbid] = useState<string>(selectableUbids[0]);
+  const [selectedUbid, setSelectedUbid] = useState<string>("");
+
+  const businessesQuery = useQuery({
+    queryFn: getBusinesses,
+    queryKey: ["businesses"],
+  });
+
+  const selectableBusinesses = businessesQuery.data ?? [];
+
+  useEffect(() => {
+    if (selectableBusinesses.length === 0) {
+      if (selectedUbid) {
+        setSelectedUbid("");
+      }
+      return;
+    }
+
+    if (!selectedUbid || !selectableBusinesses.some((business) => business.ubid === selectedUbid)) {
+      setSelectedUbid(selectableBusinesses[0].ubid);
+    }
+  }, [selectableBusinesses, selectedUbid]);
 
   const comparisonQuery = useQuery({
+    enabled: Boolean(selectedUbid),
     queryFn: () => getBusinessComparison(selectedUbid),
     queryKey: ["business-comparison", selectedUbid],
   });
@@ -91,24 +110,32 @@ export function BusinessSyncPage() {
         </label>
         <select
           className="mt-3 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white"
+          disabled={businessesQuery.isLoading || selectableBusinesses.length === 0}
           id="ubid-selector"
           onChange={(event) => setSelectedUbid(event.target.value)}
           value={selectedUbid}
         >
-          {selectableUbids.map((ubid) => (
-            <option key={ubid} value={ubid}>
-              {ubid}
+          {selectableBusinesses.map((business) => (
+            <option key={business.ubid} value={business.ubid}>
+              {business.ubid} - {business.businessName}
             </option>
           ))}
         </select>
       </InfoCard>
 
-      {comparisonQuery.isLoading ? <LoadingState label="Loading business comparison..." /> : null}
+      {businessesQuery.isLoading || comparisonQuery.isLoading ? <LoadingState label="Loading business comparison..." /> : null}
 
-      {comparisonQuery.isError ? (
+      {businessesQuery.isError || comparisonQuery.isError ? (
         <ErrorState
           description="The business comparison request could not be completed. Check that the dashboard backend APIs are running."
           title="Business comparison is unavailable"
+        />
+      ) : null}
+
+      {!businessesQuery.isLoading && !businessesQuery.isError && selectableBusinesses.length === 0 ? (
+        <EmptyState
+          description="No businesses are currently available in the database."
+          title="No businesses available"
         />
       ) : null}
 
@@ -218,6 +245,9 @@ export function BusinessSyncPage() {
           </InfoCard>
         </>
       ) : (
+        !businessesQuery.isLoading &&
+        !businessesQuery.isError &&
+        selectableBusinesses.length > 0 &&
         !comparisonQuery.isLoading &&
         !comparisonQuery.isError && (
           <EmptyState

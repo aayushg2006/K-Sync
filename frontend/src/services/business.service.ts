@@ -50,6 +50,11 @@ type DashboardBusinessComparisonResponse = {
   missingSystems: string[];
 };
 
+type MockSwsBusinessListItem = {
+  ubid: string;
+  businessName: string;
+};
+
 const SUPPORTED_COMPARE_FIELDS: BusinessFieldName[] = [
   "businessName",
   "registeredAddress",
@@ -176,9 +181,9 @@ export async function getBusinessComparison(ubid: string): Promise<BusinessCompa
 }
 
 export async function getBusinesses(): Promise<BusinessComparison[]> {
-  return Promise.all(
-    ["UBID-KA-2026-0001", "UBID-KA-2026-0002", "UBID-KA-2026-0003"].map((ubid) =>
-      getBusinessComparison(ubid),
-    ),
+  const businesses = await unwrapApiResponse<MockSwsBusinessListItem[]>(
+    api.get("/api/mock/sws/businesses"),
   );
+
+  return Promise.all(businesses.map((business) => getBusinessComparison(business.ubid)));
 }

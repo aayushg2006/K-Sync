@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  ListChecks,
   RefreshCw,
   RotateCcw,
   Route,
@@ -20,6 +21,7 @@ import {
   runDepartmentToSwsScenario,
   runFailureRetryScenario,
   runIdempotencyScenario,
+  runManualReviewScenario,
   runSwsToDepartmentsScenario,
   type DemoResetResult,
   type ScenarioRunResult,
@@ -45,6 +47,7 @@ export function DemoControlPage() {
         queryClient.invalidateQueries({ queryKey: ["system-health"] }),
         queryClient.invalidateQueries({ queryKey: ["queue-status"] }),
         queryClient.invalidateQueries({ queryKey: ["authority-matrix"] }),
+        queryClient.invalidateQueries({ queryKey: ["businesses"] }),
         queryClient.invalidateQueries({ queryKey: ["events"] }),
         queryClient.invalidateQueries({ queryKey: ["event-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["audit-logs"] }),
@@ -74,19 +77,25 @@ export function DemoControlPage() {
       run: runConflictScenario,
     },
     {
+      description: "Creates a mixed-authority conflict that stays persisted in the manual review queue for operator follow-up.",
+      icon: <ListChecks className="h-5 w-5" />,
+      label: "Run Scenario 4: Manual Review",
+      run: runManualReviewScenario,
+    },
+    {
       description: "Sends the same SWS request twice and confirms duplicate detection with no second fan-out write.",
       icon: <Workflow className="h-5 w-5" />,
-      label: "Run Scenario 4: Idempotency Retry",
+      label: "Run Scenario 5: Idempotency Retry",
       run: runIdempotencyScenario,
     },
     {
       description: "Forces the first e-Karmika write to fail once and verifies the retry succeeds deterministically.",
       icon: <RefreshCw className="h-5 w-5" />,
-      label: "Run Scenario 5: Failure + Retry",
+      label: "Run Scenario 6: Failure + Retry",
       run: runFailureRetryScenario,
     },
     {
-      description: "Restores seeded mock records, registry entries, queue state, conflicts, snapshots, and runtime event data.",
+      description: "Resets the demo businesses, clears old runtime state, and replays live scenario traffic to repopulate the persisted dashboard.",
       icon: <RotateCcw className="h-5 w-5" />,
       label: "Reset Demo Data",
       run: resetDemo,

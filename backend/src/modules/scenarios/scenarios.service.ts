@@ -30,6 +30,7 @@ type ScenarioName =
   | "SWS_TO_DEPARTMENTS"
   | "DEPARTMENT_TO_SWS"
   | "CONFLICT"
+  | "MANUAL_REVIEW"
   | "IDEMPOTENCY"
   | "FAILURE_RETRY"
   | "RESET_DEMO";
@@ -167,6 +168,10 @@ const demoSeedBusinesses: DemoSeedBusiness[] = [
   },
 ];
 
+const demoSeedBusinessByUbid = new Map(
+  demoSeedBusinesses.map((business) => [business.ubid, business] as const),
+);
+
 function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -301,6 +306,26 @@ function buildCorrelationId(suffix: string) {
   return `scenario-${suffix}-${Date.now()}`;
 }
 
+function getSeedBusinesses(ubids?: string[]) {
+  if (!ubids || ubids.length === 0) {
+    return demoSeedBusinesses;
+  }
+
+  return ubids.map((ubid) => {
+    const business = demoSeedBusinessByUbid.get(ubid);
+
+    if (!business) {
+      throw new AppError({
+        code: ERROR_CODES.BAD_REQUEST,
+        message: `No demo seed business was found for ${ubid}.`,
+        statusCode: 400,
+      });
+    }
+
+    return business;
+  });
+}
+
 function buildScenarioAddress(input: {
   city?: string;
   district?: string;
@@ -316,6 +341,14 @@ function buildScenarioAddress(input: {
     postalCode: input.postalCode,
     state: "Karnataka",
   } satisfies RegisteredAddress;
+}
+
+function buildScenarioRunId(prefix: string) {
+  return `${prefix}-${Date.now()}`;
+}
+
+function buildScenarioPersonName(baseName: string, runId: string) {
+  return `${baseName} ${runId.slice(-4)}`;
 }
 
 async function waitForEventSummary(
@@ -364,7 +397,10 @@ async function waitForEventSummary(
       "FAILED",
       "MANUAL_REVIEW_REQUIRED",
       "SUPERSEDED",
+      "TARGET_MAPPING_MISSING",
+      "TARGET_NOT_APPLICABLE",
       "WRITE_SUCCEEDED",
+      "REGISTRATION_REQUIRED",
     ].includes(event.status);
 
     if (queueComplete && eventComplete) {
@@ -489,11 +525,15 @@ async function clearRuntimeTables() {
   await prisma.canonicalEvent.deleteMany();
 }
 
-async function restoreBusinesses() {
-  await prisma.business.deleteMany();
+async function restoreBusinesses(seedBusinesses: DemoSeedBusiness[] = demoSeedBusinesses) {
+  const ubids = seedBusinesses.map((business) => business.ubid);
+
+  await prisma.business.deleteMany({
+    where: seedBusinesses.length === demoSeedBusinesses.length ? undefined : { ubid: { in: ubids } },
+  });
 
   await prisma.business.createMany({
-    data: demoSeedBusinesses.map((business) => ({
+    data: seedBusinesses.map((business) => ({
       ubid: business.ubid,
       businessName: business.businessName,
       labourRegNo: business.labourRegNo ?? null,
@@ -511,12 +551,16 @@ async function restoreBusinesses() {
   });
 }
 
-async function restoreRegistry() {
-  await prisma.ubidRegistry.deleteMany();
+async function restoreRegistry(seedBusinesses: DemoSeedBusiness[] = demoSeedBusinesses) {
+  const ubids = seedBusinesses.map((business) => business.ubid);
+
+  await prisma.ubidRegistry.deleteMany({
+    where: seedBusinesses.length === demoSeedBusinesses.length ? undefined : { ubid: { in: ubids } },
+  });
 
   const registryRows: Prisma.UbidRegistryCreateManyInput[] = [];
 
-  for (const business of demoSeedBusinesses) {
+  for (const business of seedBusinesses) {
     registryRows.push({
       ubid: business.ubid,
       systemName: "SWS",
@@ -563,13 +607,21 @@ async function restoreRegistry() {
   });
 }
 
-async function restoreMockRecords() {
-  await prisma.mockEkarmikaRecord.deleteMany();
-  await prisma.mockEsurakshateRecord.deleteMany();
-  await prisma.mockSwsRecord.deleteMany();
+async function restoreMockRecords(seedBusinesses: DemoSeedBusiness[] = demoSeedBusinesses) {
+  const ubids = seedBusinesses.map((business) => business.ubid);
+
+  await prisma.mockEkarmikaRecord.deleteMany({
+    where: seedBusinesses.length === demoSeedBusinesses.length ? undefined : { ubid: { in: ubids } },
+  });
+  await prisma.mockEsurakshateRecord.deleteMany({
+    where: seedBusinesses.length === demoSeedBusinesses.length ? undefined : { ubid: { in: ubids } },
+  });
+  await prisma.mockSwsRecord.deleteMany({
+    where: seedBusinesses.length === demoSeedBusinesses.length ? undefined : { ubid: { in: ubids } },
+  });
 
   await prisma.mockSwsRecord.createMany({
-    data: demoSeedBusinesses.map((business) => ({
+    data: seedBusinesses.map((business) => ({
       ubid: business.ubid,
       businessName: business.businessName,
       labourRegNo: business.labourRegNo ?? null,
@@ -586,7 +638,7 @@ async function restoreMockRecords() {
     })),
   });
 
-  const ekarmikaBusinesses = demoSeedBusinesses.filter((business) => business.labourRegNo);
+  const ekarmikaBusinesses = seedBusinesses.filter((business) => business.labourRegNo);
   await prisma.mockEkarmikaRecord.createMany({
     data: ekarmikaBusinesses.map((business) => ({
       labourRegNo: business.labourRegNo!,
@@ -602,7 +654,7 @@ async function restoreMockRecords() {
     })),
   });
 
-  const esurakshateBusinesses = demoSeedBusinesses.filter(
+  const esurakshateBusinesses = seedBusinesses.filter(
     (business) => business.factoryLicenseNo,
   );
   await prisma.mockEsurakshateRecord.createMany({
@@ -633,6 +685,23 @@ async function prepareScenarioDemoState() {
   await restoreMockRecords();
 }
 
+async function prepareScenarioWorkspace(ubids: string[]) {
+  const seedBusinesses = getSeedBusinesses(ubids);
+
+  clearSimulatedWriteFailures();
+  await clearRedisHoldingPen();
+  await prisma.departmentSnapshot.deleteMany({
+    where: {
+      ubid: {
+        in: ubids,
+      },
+    },
+  });
+  await restoreBusinesses(seedBusinesses);
+  await restoreRegistry(seedBusinesses);
+  await restoreMockRecords(seedBusinesses);
+}
+
 function buildScenarioResponse(
   scenario: ScenarioName,
   message: string,
@@ -655,14 +724,17 @@ function buildScenarioResponse(
 }
 
 export async function runSwsToDepartmentsScenario(): Promise<ScenarioApiResponse> {
-  await prepareScenarioDemoState();
+  const ubid = "UBID-KA-2026-0001";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario1");
+  const addressLine = `Plot 44, Peenya Industrial Area ${runId.slice(-4)}`;
 
   const sourceRequestId = `scenario-sws-address-${Date.now()}`;
   const correlationId = buildCorrelationId("sws-address");
   const payload: CanonicalPayload = {
     registeredAddress: buildScenarioAddress({
       district: "Bengaluru Urban",
-      line1: "Plot 44, Peenya Industrial Area",
+      line1: addressLine,
       postalCode: "560058",
     }),
   };
@@ -675,7 +747,7 @@ export async function runSwsToDepartmentsScenario(): Promise<ScenarioApiResponse
     serviceType: "REGISTERED_ADDRESS_CHANGE",
     sourceRequestId,
     sourceSystem: "SWS",
-    ubid: "UBID-KA-2026-0001",
+    ubid,
   });
   const runtime = await waitForEventSummary(ingestResult.eventId);
   const [ekarmikaRecord, esurakshateRecord] = await Promise.all([
@@ -684,17 +756,19 @@ export async function runSwsToDepartmentsScenario(): Promise<ScenarioApiResponse
   ]);
 
   assertScenario(
-    ekarmikaRecord.addressFull?.includes("Plot 44, Peenya Industrial Area"),
+    ekarmikaRecord.addressFull?.includes(addressLine),
     "Scenario 1 did not update mock e-Karmika with the propagated address.",
     {
       addressFull: ekarmikaRecord.addressFull,
+      expectedAddressLine: addressLine,
       eventId: ingestResult.eventId,
     },
   );
   assertScenario(
-    esurakshateRecord.factoryAddress?.includes("Plot 44, Peenya Industrial Area"),
+    esurakshateRecord.factoryAddress?.includes(addressLine),
     "Scenario 1 did not update mock e-Surakshate with the propagated address.",
     {
+      expectedAddressLine: addressLine,
       eventId: ingestResult.eventId,
       factoryAddress: esurakshateRecord.factoryAddress,
     },
@@ -705,6 +779,7 @@ export async function runSwsToDepartmentsScenario(): Promise<ScenarioApiResponse
     "SWS address change propagated to both department systems through the existing K-Sync pipeline.",
     {
       auditStatuses: runtime.auditLogs.map((auditLog) => auditLog.status),
+      addressLine,
       ekarmikaAddressFull: ekarmikaRecord.addressFull,
       esurakshateFactoryAddress: esurakshateRecord.factoryAddress,
       finalStatus: runtime.finalStatus,
@@ -720,9 +795,10 @@ export async function runSwsToDepartmentsScenario(): Promise<ScenarioApiResponse
 }
 
 export async function runDepartmentToSwsScenario(): Promise<ScenarioApiResponse> {
-  await prepareScenarioDemoState();
-
-  const ubid = "UBID-KA-2026-0001";
+  const ubid = "UBID-KA-2026-0003";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario2");
+  const managerName = buildScenarioPersonName("Meera Rao", runId);
   const baseline = await ensurePollingBaseline("ESURAKSHATE", ubid);
 
   await manuallyUpdateFactory({
@@ -731,7 +807,7 @@ export async function runDepartmentToSwsScenario(): Promise<ScenarioApiResponse>
     operation: "UPDATE",
     payload: {
       authorizedSignatory: {
-        name: "Meera Rao",
+        name: managerName,
       },
     },
     remarks: "Scenario runner applied a direct e-Surakshate manager update.",
@@ -757,14 +833,15 @@ export async function runDepartmentToSwsScenario(): Promise<ScenarioApiResponse>
   const runtime = await waitForEventSummary(createdEvent.eventId);
   const [swsBusiness, esurakshateFactory] = await Promise.all([
     getMockSwsBusinessByUbid(ubid),
-    getFactoryByLicenseNo("FAC-KA-2026-0001"),
+    getFactoryByLicenseNo("FAC-KA-2026-0003"),
   ]);
 
   assertScenario(
-    swsBusiness.authorizedSignatory?.name === "Meera Rao",
-    "Scenario 2 did not sync Meera Rao back into mock SWS.",
+    swsBusiness.authorizedSignatory?.name === managerName,
+    "Scenario 2 did not sync the updated manager name back into mock SWS.",
     {
       authorizedSignatory: swsBusiness.authorizedSignatory,
+      expectedManagerName: managerName,
       eventId: createdEvent.eventId,
     },
   );
@@ -779,6 +856,7 @@ export async function runDepartmentToSwsScenario(): Promise<ScenarioApiResponse>
       detectedChange: createdEvent,
       esurakshateManagerName: esurakshateFactory.managerName,
       finalStatus: runtime.finalStatus,
+      managerName,
       pollingSummary: pollingResult,
       queueStatuses: runtime.queueStatuses,
       swsAuthorizedSignatoryName: swsBusiness.authorizedSignatory?.name,
@@ -791,9 +869,11 @@ export async function runDepartmentToSwsScenario(): Promise<ScenarioApiResponse>
 }
 
 export async function runConflictScenario(): Promise<ScenarioApiResponse> {
-  await prepareScenarioDemoState();
-
   const ubid = "UBID-KA-2026-0001";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario3");
+  const competingAddressLine = `92 Competing Labour Layout ${runId.slice(-4)}`;
+  const authoritativeAddressLine = `11 Authority Matrix Road ${runId.slice(-4)}`;
   const baseline = await ensurePollingBaseline("EKARMIKA", ubid);
 
   await manuallyUpdateEstablishment({
@@ -803,7 +883,7 @@ export async function runConflictScenario(): Promise<ScenarioApiResponse> {
     payload: {
       registeredAddress: buildScenarioAddress({
         district: "Bengaluru Rural",
-        line1: "92 Competing Labour Layout",
+        line1: competingAddressLine,
         postalCode: "560059",
       }),
     },
@@ -837,7 +917,7 @@ export async function runConflictScenario(): Promise<ScenarioApiResponse> {
     payload: {
       registeredAddress: buildScenarioAddress({
         district: "Bengaluru Urban",
-        line1: "11 Authority Matrix Road",
+        line1: authoritativeAddressLine,
         postalCode: "560058",
       }),
     },
@@ -900,11 +980,13 @@ export async function runConflictScenario(): Promise<ScenarioApiResponse> {
         swsEvent: swsRuntime.auditLogs.map((auditLog) => auditLog.status),
       },
       baseline,
+      competingAddressLine,
       explanation,
       involvedEventIds: {
         ekarmikaEventId: ekarmikaEvent.eventId,
         swsEventId: swsResult.eventId,
       },
+      authoritativeAddressLine,
       loser: "EKARMIKA",
       winner: "SWS",
     },
@@ -916,14 +998,132 @@ export async function runConflictScenario(): Promise<ScenarioApiResponse> {
   );
 }
 
+export async function runManualReviewScenario(): Promise<ScenarioApiResponse> {
+  const ubid = "UBID-KA-2026-0001";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario4");
+  const departmentAddressLine = `51 Labour Colony Extension ${runId.slice(-4)}`;
+  const swsAddressLine = `18 Integrated Services Avenue ${runId.slice(-4)}`;
+  const departmentEmployeeCount = 138 + Number.parseInt(runId.slice(-2), 10) % 5;
+  const swsEmployeeCount = 132 + Number.parseInt(runId.slice(-2), 10) % 5;
+
+  const departmentSourceRequestId = `scenario-manual-review-ekarmika-${Date.now()}`;
+  const departmentResult = await ingestRequest({
+    changedFields: ["registeredAddress", "employeeCount"],
+    correlationId: buildCorrelationId("manual-review-ekarmika"),
+    operation: "UPDATE",
+    payload: {
+      employeeCount: departmentEmployeeCount,
+      registeredAddress: buildScenarioAddress({
+        district: "Bengaluru Rural",
+        line1: departmentAddressLine,
+        postalCode: "560059",
+      }),
+    },
+    serviceType: "REGISTERED_ADDRESS_CHANGE",
+    sourceRequestId: departmentSourceRequestId,
+    sourceSystem: "EKARMIKA",
+    ubid,
+  });
+
+  const swsSourceRequestId = `scenario-manual-review-sws-${Date.now()}`;
+  const swsResult = await ingestRequest({
+    changedFields: ["registeredAddress", "employeeCount"],
+    correlationId: buildCorrelationId("manual-review-sws"),
+    operation: "UPDATE",
+    payload: {
+      employeeCount: swsEmployeeCount,
+      registeredAddress: buildScenarioAddress({
+        district: "Bengaluru Urban",
+        line1: swsAddressLine,
+        postalCode: "560058",
+      }),
+    },
+    serviceType: "REGISTERED_ADDRESS_CHANGE",
+    sourceRequestId: swsSourceRequestId,
+    sourceSystem: "SWS",
+    ubid,
+  });
+  const [departmentRuntime, swsRuntime, conflict, reviewItem] = await Promise.all([
+    waitForEventSummary(departmentResult.eventId),
+    waitForEventSummary(swsResult.eventId),
+    prisma.conflict.findFirst({
+      where: {
+        eventId: swsResult.eventId,
+        resolutionStatus: "MANUAL_REVIEW_REQUIRED",
+      },
+      orderBy: [{ detectedAt: "desc" }],
+      select: {
+        authorityDecision: true,
+        conflictId: true,
+        eventId: true,
+        resolutionStatus: true,
+        reviewStatus: true,
+      },
+    }),
+    prisma.manualReviewItem.findFirst({
+      where: {
+        eventId: swsResult.eventId,
+      },
+      orderBy: [{ openedAt: "desc" }],
+      select: {
+        reviewId: true,
+        reviewStatus: true,
+        title: true,
+      },
+    }),
+  ]);
+
+  assertScenario(
+    conflict?.conflictId && reviewItem?.reviewId,
+    "Scenario 4 did not generate the expected manual-review conflict artifacts.",
+    {
+      departmentEventId: departmentResult.eventId,
+      swsEventId: swsResult.eventId,
+    },
+  );
+
+  return buildScenarioResponse(
+    "MANUAL_REVIEW",
+    "Mixed-authority changes triggered a persisted manual-review queue item through the live conflict pipeline.",
+    {
+      auditStatuses: {
+        departmentEvent: departmentRuntime.auditLogs.map((auditLog) => auditLog.status),
+        swsEvent: swsRuntime.auditLogs.map((auditLog) => auditLog.status),
+      },
+      competingEventId: departmentResult.eventId,
+      conflictId: conflict.conflictId,
+      departmentAddressLine,
+      departmentEmployeeCount,
+      finalStatus: swsRuntime.finalStatus,
+      queueStatuses: swsRuntime.queueStatuses,
+      reviewItem,
+      sourceRequestIds: {
+        department: departmentSourceRequestId,
+        sws: swsSourceRequestId,
+      },
+      swsAddressLine,
+      swsEmployeeCount,
+    },
+    {
+      conflictId: conflict.conflictId,
+      correlationId: swsResult.correlationId,
+      eventId: swsResult.eventId,
+    },
+  );
+}
+
 export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
-  await prepareScenarioDemoState();
+  const ubid = "UBID-KA-2026-0002";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario5");
+  const addressLine = `77 Duplicate Guard Street ${runId.slice(-4)}`;
 
   const sourceRequestId = `scenario-idempotency-${Date.now()}`;
   const payload: CanonicalPayload = {
     registeredAddress: buildScenarioAddress({
       district: "Bengaluru Urban",
-      line1: "77 Duplicate Guard Street",
+      line1: addressLine,
       postalCode: "560058",
     }),
   };
@@ -936,7 +1136,7 @@ export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
     serviceType: "REGISTERED_ADDRESS_CHANGE",
     sourceRequestId,
     sourceSystem: "SWS",
-    ubid: "UBID-KA-2026-0001",
+    ubid,
   });
   const secondCorrelationId = buildCorrelationId("idempotency-second");
   const secondResult = await ingestRequest({
@@ -947,12 +1147,12 @@ export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
     serviceType: "REGISTERED_ADDRESS_CHANGE",
     sourceRequestId,
     sourceSystem: "SWS",
-    ubid: "UBID-KA-2026-0001",
+    ubid,
   });
 
   assertScenario(
     secondResult.duplicate,
-    "Scenario 4 did not mark the second submission as a duplicate.",
+    "Scenario 5 did not mark the second submission as a duplicate.",
     {
       firstResult,
       secondResult,
@@ -994,7 +1194,7 @@ export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
 
   assertScenario(
     duplicateQueueJobs.length === 0,
-    "Scenario 4 unexpectedly created queue jobs for the duplicate event record.",
+    "Scenario 5 unexpectedly created queue jobs for the duplicate event record.",
     {
       duplicateEventRecord,
       duplicateQueueJobs,
@@ -1005,6 +1205,7 @@ export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
     "IDEMPOTENCY",
     "Idempotency check accepted the first request and rejected the duplicate submission.",
     {
+      addressLine,
       auditStatuses: runtime.auditLogs.map((auditLog) => auditLog.status),
       duplicateEventRecord,
       duplicateResult: secondResult,
@@ -1020,31 +1221,32 @@ export async function runIdempotencyScenario(): Promise<ScenarioApiResponse> {
 }
 
 export async function runFailureRetryScenario(): Promise<ScenarioApiResponse> {
-  await prepareScenarioDemoState();
+  const ubid = "UBID-KA-2026-0001";
+  await prepareScenarioWorkspace([ubid]);
+  const runId = buildScenarioRunId("scenario6");
+  const managerName = buildScenarioPersonName("Kavya Menon", runId);
 
   scheduleSimulatedWriteFailure({
     reason: "Scenario runner intentionally failed the first e-Karmika write attempt.",
     remainingFailures: 1,
     targetSystem: "EKARMIKA",
-    ubid: "UBID-KA-2026-0001",
+    ubid,
   });
 
   const sourceRequestId = `scenario-failure-retry-${Date.now()}`;
   const ingestResult = await ingestRequest({
-    changedFields: ["registeredAddress"],
+    changedFields: ["authorizedSignatory"],
     correlationId: buildCorrelationId("failure-retry"),
     operation: "UPDATE",
     payload: {
-      registeredAddress: buildScenarioAddress({
-        district: "Bengaluru Urban",
-        line1: "130 Retry Success Park",
-        postalCode: "560058",
-      }),
+      authorizedSignatory: {
+        name: managerName,
+      },
     },
-    serviceType: "REGISTERED_ADDRESS_CHANGE",
+    serviceType: "AUTHORIZED_SIGNATORY_CHANGE",
     sourceRequestId,
     sourceSystem: "SWS",
-    ubid: "UBID-KA-2026-0001",
+    ubid,
   });
 
   const runtime = await waitForEventSummary(
@@ -1056,7 +1258,7 @@ export async function runFailureRetryScenario(): Promise<ScenarioApiResponse> {
       eventId: ingestResult.eventId,
     },
   });
-  const ekarmikaQueueJob = runtime.queueStatuses.find(
+  const targetQueueJob = runtime.queueStatuses.find(
     (queueJob) => queueJob.targetSystem === "EKARMIKA",
   );
   const writeFailedAudit = runtime.auditLogs.find(
@@ -1075,22 +1277,22 @@ export async function runFailureRetryScenario(): Promise<ScenarioApiResponse> {
 
   assertScenario(
     Boolean(writeFailedAudit),
-    "Scenario 5 did not emit the expected WRITE_FAILED audit entry for e-Karmika.",
+    "Scenario 6 did not emit the expected WRITE_FAILED audit entry for e-Karmika.",
     runtime.auditLogs,
   );
   assertScenario(
     Boolean(retryScheduledAudit),
-    "Scenario 5 did not emit the expected RETRY_SCHEDULED audit entry for e-Karmika.",
+    "Scenario 6 did not emit the expected RETRY_SCHEDULED audit entry for e-Karmika.",
     runtime.auditLogs,
   );
   assertScenario(
     Boolean(writeSucceededAudit),
-    "Scenario 5 did not emit the expected WRITE_SUCCEEDED audit entry after retry.",
+    "Scenario 6 did not emit the expected WRITE_SUCCEEDED audit entry after retry.",
     runtime.auditLogs,
   );
   assertScenario(
     deadLetterCount === 0,
-    "Scenario 5 unexpectedly moved the job to the dead-letter queue.",
+    "Scenario 6 unexpectedly moved the job to the dead-letter queue.",
     {
       deadLetterCount,
       eventId: ingestResult.eventId,
@@ -1108,7 +1310,8 @@ export async function runFailureRetryScenario(): Promise<ScenarioApiResponse> {
       deadLetterCount,
       failedAttempt: writeFailedAudit?.metadata,
       finalStatus: runtime.finalStatus,
-      queueJob: ekarmikaQueueJob,
+      managerName,
+      queueJob: targetQueueJob,
       retryStatus: retryScheduledAudit?.metadata,
       sourceRequestId,
       successStatus: writeSucceededAudit?.metadata,
@@ -1120,12 +1323,68 @@ export async function runFailureRetryScenario(): Promise<ScenarioApiResponse> {
   );
 }
 
+async function countPersistentRuntimeData() {
+  const [
+    canonicalEvents,
+    auditLogs,
+    conflicts,
+    queueJobs,
+    manualReviewItems,
+    deadLetterJobs,
+    departmentSnapshots,
+    idempotencyKeys,
+  ] = await Promise.all([
+    prisma.canonicalEvent.count(),
+    prisma.auditLog.count(),
+    prisma.conflict.count(),
+    prisma.queueJob.count(),
+    prisma.manualReviewItem.count(),
+    prisma.deadLetterJob.count(),
+    prisma.departmentSnapshot.count(),
+    prisma.idempotencyKey.count(),
+  ]);
+
+  return {
+    auditLogs,
+    canonicalEvents,
+    conflicts,
+    deadLetterJobs,
+    departmentSnapshots,
+    idempotencyKeys,
+    manualReviewItems,
+    queueJobs,
+  };
+}
+
+async function primePersistentDemoTraffic() {
+  const scenarioResults = [
+    await runSwsToDepartmentsScenario(),
+    await runDepartmentToSwsScenario(),
+    await runConflictScenario(),
+    await runManualReviewScenario(),
+    await runIdempotencyScenario(),
+    await runFailureRetryScenario(),
+  ];
+
+  return {
+    runtimeSummary: await countPersistentRuntimeData(),
+    scenarios: scenarioResults.map((result) => ({
+      correlationId: result.correlationId,
+      eventId: result.eventId,
+      message: result.message,
+      scenario: result.scenario,
+      success: result.success,
+    })),
+  };
+}
+
 export async function resetScenarioDemoData(): Promise<ScenarioApiResponse> {
   await prepareScenarioDemoState();
+  const liveTraffic = await primePersistentDemoTraffic();
 
   return buildScenarioResponse(
     "RESET_DEMO",
-    "Demo data, queue state, snapshots, and mock system records were restored to the deterministic seed baseline.",
+    "Demo data was reset and live scenario traffic was replayed through the K-Sync pipeline to repopulate the persisted dashboard state.",
     {
       restoredRecords: {
         businesses: demoSeedBusinesses.length,
@@ -1140,6 +1399,8 @@ export async function resetScenarioDemoData(): Promise<ScenarioApiResponse> {
           demoSeedBusinesses.filter((business) => business.labourRegNo).length +
           demoSeedBusinesses.filter((business) => business.factoryLicenseNo).length,
       },
+      restoredRuntimeData: liveTraffic.runtimeSummary,
+      replayedScenarios: liveTraffic.scenarios,
     },
   );
 }
