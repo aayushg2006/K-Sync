@@ -12,7 +12,7 @@ COPY vite.config.ts ./
 COPY tailwind.config.ts ./
 COPY src ./src
 
-ARG VITE_API_BASE_URL=http://localhost:8080
+ARG VITE_API_BASE_URL=https://k-sync-backend-729436216540.asia-south1.run.app
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
