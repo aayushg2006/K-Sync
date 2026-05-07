@@ -1,0 +1,57 @@
+export const SYSTEM_NAMES = ["SWS", "EKARMIKA", "ESURAKSHATE", "KSYNC"] as const;
+
+export type SystemName = (typeof SYSTEM_NAMES)[number];
+
+export const SERVICE_TYPES = [
+  "REGISTERED_ADDRESS_CHANGE",
+  "AUTHORIZED_SIGNATORY_CHANGE",
+  "EMPLOYEE_COUNT_CHANGE",
+  "LICENSE_EXPIRY_CHANGE",
+  "POWER_CAPACITY_CHANGE",
+] as const;
+
+export type ServiceType = (typeof SERVICE_TYPES)[number];
+
+export const OPERATION_TYPES = ["CREATE", "UPDATE", "DELETE"] as const;
+
+export type OperationType = (typeof OPERATION_TYPES)[number];
+
+export const EVENT_STATUSES = [
+  "RECEIVED",
+  "VALIDATED",
+  "IDEMPOTENCY_ACCEPTED",
+  "DUPLICATE_DETECTED",
+  "NORMALIZED",
+  "CONFLICT_CHECKED",
+  "CONFLICT_DETECTED",
+  "CONFLICT_RESOLVED",
+  "ROUTED",
+  "TRANSLATED",
+  "QUEUED",
+  "WRITE_ATTEMPTED",
+  "WRITE_SUCCEEDED",
+  "WRITE_FAILED",
+  "RETRY_SCHEDULED",
+  "DLQ_MOVED",
+  "COMPLETED",
+  "FAILED",
+  "MANUAL_REVIEW_REQUIRED",
+  "PROPAGATED_CHANGE_CONFIRMED",
+  "TARGET_NOT_APPLICABLE",
+  "REGISTRATION_REQUIRED",
+  "TARGET_MAPPING_MISSING",
+  "SUPERSEDED",
+] as const;
+
+export type EventStatus = (typeof EVENT_STATUSES)[number];
+
+export const AUDIT_STAGES = [
+  "INGESTION",
+  "VALIDATION",
+  "NORMALIZATION",
+  "ROUTING",
+  "CONFLICT_REVIEW",
+  "DELIVERY",
+] as const;
+
+export type AuditStage = (typeof AUDIT_STAGES)[number];

@@ -1,0 +1,18 @@
+(
+  $addressParts := [
+    registeredAddress.line1,
+    registeredAddress.line2,
+    registeredAddress.city,
+    registeredAddress.district,
+    registeredAddress.state,
+    registeredAddress.postalCode
+  ];
+  {
+    "businessName": businessName,
+    "addressFull": $join($filter($addressParts, function($value) { $exists($value) and $value != "" }), ", "),
+    "managerName": authorizedSignatory.name,
+    "employeeCount": employeeCount,
+    "workerLimit": workerLimit,
+    "powerCapacityHP": powerCapacityHP
+  }
+)

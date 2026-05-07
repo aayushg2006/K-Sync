@@ -1,0 +1,489 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum SystemName {
+  SWS
+  EKARMIKA
+  ESURAKSHATE
+  KSYNC
+}
+
+enum ServiceType {
+  REGISTERED_ADDRESS_CHANGE
+  AUTHORIZED_SIGNATORY_CHANGE
+  EMPLOYEE_COUNT_CHANGE
+  LICENSE_EXPIRY_CHANGE
+  POWER_CAPACITY_CHANGE
+}
+
+enum OperationType {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum EventStatus {
+  RECEIVED
+  VALIDATED
+  IDEMPOTENCY_ACCEPTED
+  DUPLICATE_DETECTED
+  NORMALIZED
+  CONFLICT_CHECKED
+  CONFLICT_DETECTED
+  CONFLICT_RESOLVED
+  ROUTED
+  TRANSLATED
+  QUEUED
+  WRITE_ATTEMPTED
+  WRITE_SUCCEEDED
+  WRITE_FAILED
+  RETRY_SCHEDULED
+  DLQ_MOVED
+  COMPLETED
+  FAILED
+  MANUAL_REVIEW_REQUIRED
+  PROPAGATED_CHANGE_CONFIRMED
+  TARGET_NOT_APPLICABLE
+  REGISTRATION_REQUIRED
+  TARGET_MAPPING_MISSING
+  SUPERSEDED
+}
+
+enum MappingType {
+  JSONATA
+  XSLT
+  CUSTOM
+}
+
+enum MappingStatus {
+  ACTIVE
+  INACTIVE
+  DEPRECATED
+}
+
+enum ConflictResolutionStatus {
+  AUTO_RESOLVED
+  SUPERSEDED
+  MANUAL_REVIEW_REQUIRED
+  REPLAYED_AFTER_REVIEW
+  REJECTED_AFTER_REVIEW
+  PENDING
+}
+
+enum ReviewStatus {
+  OPEN
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  REPLAYED
+  CLOSED
+}
+
+enum QueueJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRY_SCHEDULED
+  DLQ_MOVED
+}
+
+enum AuditStage {
+  INGESTION
+  VALIDATION
+  NORMALIZATION
+  ROUTING
+  CONFLICT_REVIEW
+  DELIVERY
+}
+
+model Business {
+  id                  String    @id @default(cuid())
+  ubid                String    @unique
+  businessName        String
+  labourRegNo         String?   @unique
+  factoryLicenseNo    String?   @unique
+  sourceRequestId     String?
+  registeredAddress   Json?
+  authorizedSignatory Json?
+  employeeCount       Int?
+  workerLimit         Int?
+  powerCapacityHP     Int?
+  licenseExpiry       String?
+  metadata            Json?
+  lastModifiedAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([ubid])
+  @@index([labourRegNo])
+  @@index([factoryLicenseNo])
+}
+
+model UbidRegistry {
+  id                  String     @id @default(cuid())
+  ubid                String
+  systemName          SystemName
+  localIdentifierType String
+  localIdentifier     String
+  businessName        String?
+  isActive            Boolean    @default(true)
+  metadata            Json?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@unique([ubid, systemName, localIdentifierType])
+  @@index([ubid])
+  @@index([systemName])
+  @@index([localIdentifier])
+}
+
+model CanonicalEvent {
+  id                    String        @id @default(cuid())
+  eventId               String        @unique
+  correlationId         String
+  sourceSystem          SystemName
+  targetSystem          SystemName?
+  sourceRequestId       String?
+  ubid                  String
+  serviceType           ServiceType
+  operation             OperationType
+  changedFields         Json
+  payload               Json
+  normalizedPayloadHash String
+  status                EventStatus
+  routeTargets          Json?
+  metadata              Json?
+  receivedAt            DateTime
+  completedAt           DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([ubid])
+  @@index([eventId])
+  @@index([correlationId])
+  @@index([status])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+  @@index([serviceType])
+}
+
+model IdempotencyKey {
+  id                    String       @id @default(cuid())
+  primaryKey            String?      @unique
+  fallbackKey           String       @unique
+  eventId               String?
+  sourceSystem          SystemName
+  sourceRequestId       String?
+  ubid                  String
+  serviceType           ServiceType
+  normalizedPayloadHash String
+  cachedResult          Json?
+  status                EventStatus?
+  expiresAt             DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@index([eventId])
+  @@index([ubid])
+  @@index([sourceSystem])
+  @@index([sourceRequestId])
+  @@index([serviceType])
+}
+
+model AuditLog {
+  id              String        @id @default(cuid())
+  auditId         String        @unique
+  eventId         String
+  correlationId   String
+  ubid            String
+  sourceSystem    SystemName
+  targetSystem    SystemName?
+  serviceType     ServiceType
+  operation       OperationType
+  stage           AuditStage
+  status          EventStatus
+  message         String        @db.Text
+  sourceRequestId String?
+  metadata        Json?
+  recordedAt      DateTime
+  createdAt       DateTime      @default(now())
+
+  @@index([auditId])
+  @@index([eventId])
+  @@index([ubid])
+  @@index([correlationId])
+  @@index([status])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+}
+
+model SchemaMapping {
+  id                String        @id @default(cuid())
+  mappingId         String        @unique
+  sourceSystem      SystemName
+  targetSystem      SystemName
+  serviceType       ServiceType
+  mappingType       MappingType
+  status            MappingStatus @default(ACTIVE)
+  version           Int           @default(1)
+  mappingExpression String        @db.Text
+  fieldConfig       Json?
+  sampleInput       Json?
+  sampleOutput      Json?
+  metadata          Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  activatedAt       DateTime?
+  deprecatedAt      DateTime?
+
+  @@index([mappingId])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+  @@index([serviceType])
+  @@index([status])
+}
+
+model Conflict {
+  id                String                   @id @default(cuid())
+  conflictId        String                   @unique
+  eventId           String
+  correlationId     String
+  ubid              String
+  serviceType       ServiceType
+  sourceSystem      SystemName
+  targetSystem      SystemName
+  conflictingFields Json
+  sourcePayload     Json
+  targetPayload     Json
+  resolutionStatus  ConflictResolutionStatus @default(PENDING)
+  reviewStatus      ReviewStatus?
+  authorityDecision Json?
+  metadata          Json?
+  notes             String?                  @db.Text
+  reviewedBy        String?
+  detectedAt        DateTime
+  reviewedAt        DateTime?
+  resolvedAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([conflictId])
+  @@index([eventId])
+  @@index([ubid])
+  @@index([correlationId])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+  @@index([resolutionStatus])
+  @@index([reviewStatus])
+}
+
+model AuthorityMatrix {
+  id                   String        @id @default(cuid())
+  fieldPath            String
+  version              Int
+  serviceType          ServiceType?
+  authoritativeSystem  SystemName
+  fallbackSystem       SystemName?
+  targetSystem         SystemName?
+  manualReviewRequired Boolean       @default(false)
+  status               MappingStatus @default(ACTIVE)
+  ruleConfig           Json?
+  notes                String?       @db.Text
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@unique([fieldPath, version])
+  @@index([fieldPath])
+  @@index([serviceType])
+  @@index([authoritativeSystem])
+  @@index([targetSystem])
+  @@index([status])
+}
+
+model DepartmentSnapshot {
+  id                    String     @id @default(cuid())
+  systemName            SystemName
+  ubid                  String
+  localIdentifier       String
+  localIdentifierType   String?
+  snapshotPayload       Json
+  normalizedPayloadHash String?
+  changedFields         Json?
+  metadata              Json?
+  capturedAt            DateTime   @default(now())
+  lastModifiedAt        DateTime?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  @@unique([systemName, ubid, localIdentifier])
+  @@index([ubid])
+  @@index([systemName])
+  @@index([localIdentifier])
+}
+
+model QueueJob {
+  id            String         @id @default(cuid())
+  jobId         String         @unique
+  queueName     String
+  status        QueueJobStatus
+  eventId       String?
+  correlationId String?
+  ubid          String?
+  sourceSystem  SystemName?
+  targetSystem  SystemName?
+  attemptsMade  Int            @default(0)
+  maxAttempts   Int            @default(3)
+  payload       Json
+  result        Json?
+  error         Json?
+  metadata      Json?
+  scheduledFor  DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([jobId])
+  @@index([eventId])
+  @@index([ubid])
+  @@index([correlationId])
+  @@index([status])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+  @@index([queueName])
+}
+
+model DeadLetterJob {
+  id            String         @id @default(cuid())
+  dlqId         String         @unique
+  jobId         String?
+  eventId       String?
+  correlationId String?
+  ubid          String?
+  sourceSystem  SystemName?
+  targetSystem  SystemName?
+  queueName     String
+  status        QueueJobStatus @default(DLQ_MOVED)
+  payload       Json
+  error         Json?
+  metadata      Json?
+  reviewStatus  ReviewStatus   @default(OPEN)
+  movedAt       DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([dlqId])
+  @@index([jobId])
+  @@index([eventId])
+  @@index([ubid])
+  @@index([correlationId])
+  @@index([status])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+}
+
+model ManualReviewItem {
+  id                String       @id @default(cuid())
+  reviewId          String       @unique
+  reviewStatus      ReviewStatus @default(OPEN)
+  reviewType        String
+  eventId           String?
+  conflictId        String?
+  jobId             String?
+  correlationId     String?
+  ubid              String?
+  sourceSystem      SystemName?
+  targetSystem      SystemName?
+  title             String
+  summary           String?      @db.Text
+  payload           Json?
+  resolutionPayload Json?
+  reviewerNotes     String?      @db.Text
+  assignedTo        String?
+  requestedBy       String?
+  openedAt          DateTime     @default(now())
+  reviewedAt        DateTime?
+  closedAt          DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([reviewId])
+  @@index([eventId])
+  @@index([conflictId])
+  @@index([jobId])
+  @@index([ubid])
+  @@index([correlationId])
+  @@index([reviewStatus])
+  @@index([sourceSystem])
+  @@index([targetSystem])
+}
+
+model MockSwsRecord {
+  id                  String   @id @default(cuid())
+  ubid                String   @unique
+  businessName        String
+  labourRegNo         String?
+  factoryLicenseNo    String?
+  sourceRequestId     String?
+  registeredAddress   Json?
+  authorizedSignatory Json?
+  employeeCount       Int?
+  workerLimit         Int?
+  powerCapacityHP     Int?
+  licenseExpiry       String?
+  rawPayload          Json?
+  lastModifiedAt      DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([ubid])
+  @@index([labourRegNo])
+  @@index([factoryLicenseNo])
+}
+
+model MockEkarmikaRecord {
+  id              String   @id @default(cuid())
+  labourRegNo     String   @unique
+  ubid            String
+  businessName    String
+  addressFull     String?  @db.Text
+  managerName     String?
+  employeeCount   Int?
+  workerLimit     Int?
+  powerCapacityHP Int?
+  rawPayload      Json?
+  lastModifiedAt  DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ubid])
+  @@index([labourRegNo])
+}
+
+model MockEsurakshateRecord {
+  id               String   @id @default(cuid())
+  factoryLicenseNo String   @unique
+  ubid             String
+  businessName     String
+  factoryAddress   String?  @db.Text
+  managerName      String?
+  employeeCount    Int?
+  workerLimit      Int?
+  powerCapacityHP  Int?
+  snapshotXml      String?  @db.Text
+  rawPayload       Json?
+  lastModifiedAt   DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([ubid])
+  @@index([factoryLicenseNo])
+}

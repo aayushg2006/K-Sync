@@ -1,0 +1,12 @@
+{
+  "businessName": businessName,
+  "registeredAddress": {
+    "line1": addressFull
+  },
+  "authorizedSignatory": {
+    "name": managerName
+  },
+  "employeeCount": employeeCount,
+  "workerLimit": workerLimit,
+  "powerCapacityHP": powerCapacityHP
+}

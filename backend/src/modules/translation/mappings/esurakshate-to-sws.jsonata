@@ -1,0 +1,12 @@
+{
+  "businessName": $exists(BusinessName) ? BusinessName : businessName,
+  "registeredAddress": {
+    "line1": $exists(FactoryAddress) ? FactoryAddress : factoryAddress
+  },
+  "authorizedSignatory": {
+    "name": $exists(ManagerName) ? ManagerName : managerName
+  },
+  "employeeCount": $exists(EmployeeCount) ? EmployeeCount : employeeCount,
+  "workerLimit": $exists(WorkerLimit) ? WorkerLimit : workerLimit,
+  "powerCapacityHP": $exists(PowerCapacityHP) ? PowerCapacityHP : powerCapacityHP
+}

@@ -1,0 +1,52 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: k-sync-backend
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+        run.googleapis.com/vpc-access-connector: k-sync-connector
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      serviceAccountName: k-sync-backend-sa@ksync-prototype.iam.gserviceaccount.com
+      containers:
+        - image: asia-south1-docker.pkg.dev/ksync-prototype/k-sync/k-sync-backend:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "8080"
+            - name: FRONTEND_URLS
+              value: http://localhost:5173
+            - name: REDIS_URL
+              value: redis://REDIS_PRIVATE_IP:6379
+            - name: CONFLICT_WINDOW_SECONDS
+              value: "10"
+            - name: QUEUE_MAX_ATTEMPTS
+              value: "3"
+            - name: ENABLE_POLLER
+              value: "false"
+            - name: POLLER_INTERVAL_SECONDS
+              value: "300"
+            - name: RUN_MIGRATIONS_ON_STARTUP
+              value: "true"
+            - name: RUN_SEED_ON_STARTUP
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ksync-database-url
+                  key: latest
+            - name: DIRECT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ksync-direct-url
+                  key: latest
